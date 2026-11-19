@@ -1,0 +1,71 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build_windows:
+    name: Build Flutter Windows Release + Xray Core
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          architecture: 'x64'
+
+      - name: Generate Windows runner files if missing
+        run: flutter create --platforms=windows .
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows Release EXE
+        run: flutter build windows --release
+
+      - name: Download Xray-core Windows x64 and bundle with EXE
+        shell: pwsh
+        run: |
+          $releaseDir = "build\windows\x64\runner\Release"
+          if (-not (Test-Path $releaseDir)) {
+            $releaseDir = "build\windows\runner\Release"
+          }
+
+          $xrayZip = "$env:TEMP\Xray-windows-64.zip"
+          $xrayExtract = "$env:TEMP\xray_core"
+          $downloadUrl = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip"
+
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $xrayZip
+          Expand-Archive -Path $xrayZip -DestinationPath $xrayExtract -Force
+
+          Copy-Item "$xrayExtract\xray.exe" -Destination "$releaseDir\xray.exe" -Force
+          if (Test-Path "$xrayExtract\geoip.dat") {
+            Copy-Item "$xrayExtract\geoip.dat" -Destination "$releaseDir\geoip.dat" -Force
+          }
+          if (Test-Path "$xrayExtract\geosite.dat") {
+            Copy-Item "$xrayExtract\geosite.dat" -Destination "$releaseDir\geosite.dat" -Force
+          }
+
+      - name: Package Release into ZIP
+        shell: pwsh
+        run: |
+          $releaseDir = "build\windows\x64\runner\Release"
+          if (-not (Test-Path $releaseDir)) {
+            $releaseDir = "build\windows\runner\Release"
+          }
+          Compress-Archive -Path "$releaseDir\*" -DestinationPath "ViraVPN-Windows-x64.zip" -Force
+
+      - name: Upload Windows EXE Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ViraVPN-Windows-x64
+          path: ViraVPN-Windows-x64.zip
+          retention-days: 30
